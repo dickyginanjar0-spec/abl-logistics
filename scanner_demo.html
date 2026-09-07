@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ABL Dock Scan — Camera Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --asphalt:#14171a;
+    --panel:#1e2328;
+    --panel-raised:#262c33;
+    --steel:#3a424c;
+    --hazard:#ff6b35;
+    --hazard-dim:#c94f22;
+    --go:#00c896;
+    --go-dim:#00755a;
+    --warn:#ffc84a;
+    --text:#eef1f4;
+    --text-mute:#8a939e;
+    --line:#2f363e;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--asphalt);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* Hazard stripe top bar — signature element */
+  .stripe-bar{
+    height:6px;
+    background:repeating-linear-gradient(135deg,var(--hazard) 0 14px,var(--asphalt) 14px 28px);
+  }
+  header{
+    padding:18px 20px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:2px;
+    color:var(--hazard);
+    text-transform:uppercase;
+    margin-bottom:6px;
+  }
+  h1{
+    font-family:'Oswald',sans-serif;
+    font-size:24px;
+    font-weight:700;
+    letter-spacing:0.5px;
+    text-transform:uppercase;
+  }
+  .sub{color:var(--text-mute);font-size:12px;margin-top:4px;}
+
+  /* Conveyor milestone rail */
+  .rail{
+    display:flex;
+    overflow-x:auto;
+    gap:0;
+    padding:14px 16px 0;
+    scrollbar-width:none;
+  }
+  .rail::-webkit-scrollbar{display:none;}
+  .rail-stop{
+    flex:0 0 auto;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 14px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--text-mute);
+    border-bottom:3px solid var(--line);
+    white-space:nowrap;
+    cursor:pointer;
+  }
+  .rail-stop .num{
+    width:18px;height:18px;border-radius:3px;
+    background:var(--steel);color:var(--text);
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:700;
+  }
+  .rail-stop.active{color:var(--text);border-bottom-color:var(--hazard);}
+  .rail-stop.active .num{background:var(--hazard);color:#14171a;}
+  .rail-stop.done .num{background:var(--go);color:#14171a;}
+
+  .wrap{max-width:520px;margin:0 auto;padding:18px 16px 40px;}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .panel h2{
+    font-family:'Oswald',sans-serif;
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:0.5px;
+    margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .field{margin-bottom:12px;}
+  .field label{
+    display:block;font-size:11px;color:var(--text-mute);
+    text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;
+    font-weight:600;
+  }
+  .field input, .field select{
+    width:100%;padding:11px 12px;
+    background:var(--panel-raised);
+    border:1px solid var(--steel);
+    border-radius:6px;color:var(--text);font-size:14px;
+  }
+  .field input:focus{outline:none;border-color:var(--hazard);}
+
+  /* Camera viewfinder — signature */
+  .viewfinder{
+    position:relative;
+    background:#000;
+    border-radius:10px;
+    overflow:hidden;
+    aspect-ratio:1/1;
+    margin-bottom:12px;
+    border:1px solid var(--steel);
+  }
+  #qr-reader{width:100%;}
+  .vf-corners{
+    position:absolute;inset:14%;
+    pointer-events:none;
+    border:0;
+  }
+  .vf-corners::before, .vf-corners::after,
+  .vf-corner-b::before, .vf-corner-b::after{
+    content:'';position:absolute;width:28px;height:28px;
+    border-color:var(--hazard);border-style:solid;
+  }
+  .corner-tl{top:14%;left:14%;border-width:3px 0 0 3px;width:28px;height:28px;position:absolute;}
+  .corner-tr{top:14%;right:14%;border-width:3px 3px 0 0;width:28px;height:28px;position:absolute;}
+  .corner-bl{bottom:14%;left:14%;border-width:0 0 3px 3px;width:28px;height:28px;position:absolute;}
+  .corner-br{bottom:14%;right:14%;border-width:0 3px 3px 0;width:28px;height:28px;position:absolute;}
+  .corner-tl,.corner-tr,.corner-bl,.corner-br{border-color:var(--hazard);border-style:solid;transition:border-color .2s;}
+  .viewfinder.flash-ok .corner-tl,.viewfinder.flash-ok .corner-tr,
+  .viewfinder.flash-ok .corner-bl,.viewfinder.flash-ok .corner-br{border-color:var(--go);}
+  .viewfinder.flash-err .corner-tl,.viewfinder.flash-err .corner-tr,
+  .viewfinder.flash-err .corner-bl,.viewfinder.flash-err .corner-br{border-color:#ff4d4d;}
+
+  .scan-line{
+    position:absolute;left:14%;right:14%;top:14%;height:2px;
+    background:var(--hazard);box-shadow:0 0 8px var(--hazard);
+    animation:sweep 2.2s linear infinite;
+  }
+  @keyframes sweep{0%{top:14%;}50%{top:84%;}100%{top:14%;}}
+
+  .cam-toggle{
+    display:flex;gap:8px;margin-bottom:12px;
+  }
+  .btn{
+    padding:12px 16px;border:none;border-radius:7px;
+    font-weight:700;font-size:13px;cursor:pointer;
+    font-family:'Inter',sans-serif;transition:transform .1s;
+  }
+  .btn:active{transform:scale(0.97);}
+  .btn-hazard{background:var(--hazard);color:#14171a;flex:1;}
+  .btn-steel{background:var(--panel-raised);color:var(--text);border:1px solid var(--steel);}
+  .btn-full{width:100%;padding:14px;font-size:14px;}
+
+  .manual-fallback{
+    display:flex;gap:8px;
+  }
+  .manual-fallback input{
+    font-family:'JetBrains Mono',monospace;
+    text-transform:uppercase;font-weight:700;
+  }
+
+  .last-scan{
+    display:none;
+    padding:12px 14px;border-radius:8px;margin-bottom:14px;
+    font-family:'JetBrains Mono',monospace;font-size:12px;
+    border:1px solid var(--go);background:rgba(0,200,150,0.08);
+  }
+  .last-scan.show{display:block;}
+  .last-scan .code{font-size:15px;font-weight:700;color:var(--go);}
+
+  .status-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;background:var(--panel-raised);
+    border-radius:8px;margin-bottom:14px;font-size:11px;color:var(--text-mute);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+  .dot.on{background:var(--go);box-shadow:0 0 6px var(--go);}
+  .dot.off{background:var(--hazard);}
+
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    padding:12px 22px;border-radius:8px;font-weight:700;font-size:13px;
+    z-index:999;box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    font-family:'Inter',sans-serif;
+  }
+  .toast.ok{background:var(--go);color:#0a0f0d;}
+  .toast.err{background:#ff4d4d;color:#1a0505;}
+</style>
+</head>
+<body>
+
+<div class="stripe-bar"></div>
+<header>
+  <div class="eyebrow">// LIVE DOCK SCANNER</div>
+  <h1>ABL Camera Scan</h1>
+  <div class="sub">Kamera HP sebagai barcode scanner — langsung tersinkron ke database</div>
+</header>
+
+<div class="rail" id="rail">
+  <div class="rail-stop active" data-step="1" data-name="PICKUP_IN"><span class="num">1</span>PICKUP</div>
+  <div class="rail-stop" data-step="2" data-name="TRUCKING_OUT"><span class="num">2</span>TRUCKING</div>
+  <div class="rail-stop" data-step="3" data-name="TRANSIT"><span class="num">3</span>TRANSIT</div>
+  <div class="rail-stop" data-step="4" data-name="SAILING"><span class="num">4</span>SAILING</div>
+  <div class="rail-stop" data-step="5" data-name="DOORING_BATAM"><span class="num">5</span>DOORING</div>
+</div>
+
+<div class="wrap">
+
+  <div class="status-bar">
+    <span><span class="dot off" id="connDot"></span><span id="connText">Supabase belum terhubung</span></span>
+    <span id="clock">--:--:--</span>
+  </div>
+
+  <div class="panel" id="loginPanel" style="display:none;border-color:var(--hazard);">
+    <h2>🔐 Login Operator</h2>
+    <p class="sub" style="margin-bottom:12px;">Wajib login supaya scan bisa masuk ke database (sesuai akun yang dibuat di Supabase Authentication).</p>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="admin@abl.com" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn btn-hazard btn-full" onclick="loginOperator()">🔓 Login</button>
+  </div>
+
+  <div class="panel" id="dataPanel" style="display:none;">
+    <h2>📋 Data Operator</h2>
+    <div class="field">
+      <label>Operator ID</label>
+      <input type="text" id="operatorId" placeholder="OP-001">
+    </div>
+    <div class="field">
+      <label>No LT / Surat Jalan (opsional — auto-link dari barcode)</label>
+      <input type="text" id="noLt" placeholder="LT0Q811K67BC1">
+    </div>
+    <div class="field">
+      <label>Nama Driver</label>
+      <input type="text" id="driverName" placeholder="IWAN">
+    </div>
+    <div class="field">
+      <label>No Polisi Kendaraan</label>
+      <input type="text" id="nopol" placeholder="L 8374 AE" style="text-transform:uppercase;">
+    </div>
+  </div>
+
+  <div class="panel" id="pickupExtraPanel" style="display:none;border-color:var(--warn);">
+    <h2 style="color:var(--warn);">🕐 Info Tambahan (Khusus Pickup)</h2>
+    <div class="field">
+      <label>Slot Time</label>
+      <input type="text" id="slotTime" placeholder="Slot 1">
+    </div>
+    <p class="sub" style="margin:10px 0;">Info pembayaran driver (opsional, isi kalau tersedia)</p>
+    <div class="field">
+      <label>No HP Driver</label>
+      <input type="text" id="driverHp" placeholder="0812xxxxxxx">
+    </div>
+    <div class="field">
+      <label>No Rekening</label>
+      <input type="text" id="driverRek" placeholder="9000002545771">
+    </div>
+    <div class="field">
+      <label>Bank</label>
+      <input type="text" id="driverBank" placeholder="BRI">
+    </div>
+    <div class="field">
+      <label>Atas Nama</label>
+      <input type="text" id="driverAtasNama" placeholder="SLAMET WIDODO">
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>📷 Scan Barcode TO — <span id="stepLabel" style="color:var(--hazard)">PICKUP</span></h2>
+
+    <div class="viewfinder" id="viewfinder">
+      <div id="qr-reader"></div>
+      <div class="scan-line" id="scanLine"></div>
+      <div class="corner-tl"></div><div class="corner-tr"></div>
+      <div class="corner-bl"></div><div class="corner-br"></div>
+    </div>
+
+    <div class="cam-toggle">
+      <button class="btn btn-hazard" id="camBtn" onclick="toggleCamera()">▶ Aktifkan Kamera</button>
+      <button class="btn btn-steel" onclick="flipCamera()">🔄 Ganti Kamera</button>
+    </div>
+
+    <div class="last-scan" id="lastScan">
+      <div style="color:var(--text-mute);margin-bottom:4px;">TERAKHIR DISCAN</div>
+      <div class="code" id="lastScanCode">-</div>
+    </div>
+
+    <div class="field">
+      <label>Atau ketik manual (fallback jika kamera tidak tersedia)</label>
+      <div class="manual-fallback">
+        <input type="text" id="manualBarcode" placeholder="KETIK BARCODE...">
+        <button class="btn btn-hazard" onclick="submitManual()">✓ Kirim</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="configPanel" style="border-color:var(--steel);display:none;">
+    <h2 style="color:var(--text-mute);">⚙️ Konfigurasi Supabase (Manual)</h2>
+    <p class="sub" style="margin-bottom:12px;">Biasanya tidak perlu diisi — koneksi sudah otomatis. Panel ini cuma untuk override kalau perlu ganti project.</p>
+    <div class="field">
+      <label>Project URL</label>
+      <input type="text" id="sbUrl" placeholder="https://xxxx.supabase.co">
+    </div>
+    <div class="field">
+      <label>Anon Public Key</label>
+      <input type="text" id="sbKey" placeholder="eyJhbGciOi...">
+    </div>
+    <button class="btn btn-hazard btn-full" onclick="connectSupabase()">🔌 Hubungkan Database</button>
+  </div>
+
+  <p class="sub" style="text-align:center;margin-bottom:16px;">
+    <a href="#" onclick="document.getElementById('configPanel').style.display='block';return false;" style="color:var(--text-mute);text-decoration:underline;">Tampilkan pengaturan koneksi manual</a>
+  </p>
+
+</div>
+
+<script>
+// ============================================================
+// KONFIGURASI SUPABASE (sudah tertanam, tidak perlu diisi manual)
+// ============================================================
+const SUPABASE_URL = 'https://joyxxauwqxjmzodnmerb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpveXh4YXV3cXhqbXpvZG5tZXJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NDQzMTcsImV4cCI6MjEwMzQyMDMxN30.9bGCy8QXl-8lG5Pn3ff2m8VoOlfvG77_8ioXSOFyF90';
+
+// ============================================================
+// STATE
+// ============================================================
+let currentStep = 1;
+const stepNames = {1:'PICKUP',2:'TRUCKING',3:'TRANSIT',4:'SAILING',5:'DOORING'};
+let html5QrCode = null;
+let cameraId = null;
+let cameras = [];
+let cameraRunning = false;
+let sbClient = null;
+
+// Auto-connect begitu halaman dibuka
+window.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('sbUrl').value = SUPABASE_URL;
+  document.getElementById('sbKey').value = SUPABASE_ANON_KEY;
+  connectSupabase();
+});
+
+// ============================================================
+// CLOCK
+// ============================================================
+setInterval(()=>{
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('id-ID');
+},1000);
+
+// ============================================================
+// MILESTONE RAIL
+// ============================================================
+document.querySelectorAll('.rail-stop').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.rail-stop').forEach(r=>r.classList.remove('active'));
+    el.classList.add('active');
+    currentStep = parseInt(el.dataset.step);
+    document.getElementById('stepLabel').textContent = stepNames[currentStep];
+    document.getElementById('pickupExtraPanel').style.display = (currentStep === 1) ? 'block' : 'none';
+  });
+});
+
+// ============================================================
+// SUPABASE CONNECTION
+// ============================================================
+function connectSupabase(){
+  const url = document.getElementById('sbUrl').value.trim();
+  const key = document.getElementById('sbKey').value.trim();
+  if(!url || !key){ showToast('Isi URL dan Key dulu', 'err'); return; }
+  try{
+    sbClient = window.supabase.createClient(url, key);
+    document.getElementById('connDot').className = 'dot on';
+    document.getElementById('connText').textContent = 'Terhubung ke Supabase ✓';
+    showToast('Database terhubung', 'ok');
+    document.getElementById('loginPanel').style.display = 'block';
+    subscribeRealtime();
+  }catch(e){
+    showToast('Gagal konek: '+e.message, 'err');
+  }
+}
+
+async function loginOperator(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if(!sbClient){ showToast('Hubungkan database dulu', 'err'); return; }
+  if(!email || !password){ showToast('Isi email dan password', 'err'); return; }
+
+  const { data, error } = await sbClient.auth.signInWithPassword({ email, password });
+  if(error){
+    showToast('Login gagal: '+error.message, 'err');
+    return;
+  }
+  showToast('✓ Login berhasil sebagai '+email, 'ok');
+  document.getElementById('loginPanel').style.display = 'none';
+  document.getElementById('dataPanel').style.display = 'block';
+  document.getElementById('connText').textContent = 'Login: '+email;
+}
+
+function subscribeRealtime(){
+  // Contoh: dashboard lain akan auto-update tanpa refresh saat ada scan baru
+  sbClient.channel('scan_events_live')
+    .on('postgres_changes', {event:'INSERT', schema:'public', table:'scan_events'}, payload=>{
+      console.log('Realtime scan masuk:', payload.new);
+    })
+    .subscribe();
+}
+
+// ============================================================
+// CAMERA SCANNER (html5-qrcode)
+// ============================================================
+function toggleCamera(){
+  if(cameraRunning){ stopCamera(); return; }
+  Html5Qrcode.getCameras().then(devices=>{
+    if(!devices || devices.length===0){ showToast('Kamera tidak ditemukan', 'err'); return; }
+    cameras = devices;
+    cameraId = devices[devices.length-1].id; // default: kamera belakang biasanya index terakhir
+    startCamera();
+  }).catch(err=>{
+    showToast('Izin kamera ditolak', 'err');
+  });
+}
+
+function startCamera(){
+  html5QrCode = new Html5Qrcode("qr-reader");
+  html5QrCode.start(
+    cameraId,
+    { fps: 10, qrbox: { width: 220, height: 220 } },
+    (decodedText)=>{ onScanSuccess(decodedText); },
+    (errorMsg)=>{ /* silent, terus mencoba */ }
+  ).then(()=>{
+    cameraRunning = true;
+    document.getElementById('camBtn').textContent = '⏹ Matikan Kamera';
+  }).catch(err=>{
+    showToast('Gagal buka kamera: '+err, 'err');
+  });
+}
+
+function stopCamera(){
+  if(html5QrCode){
+    html5QrCode.stop().then(()=>{
+      html5QrCode.clear();
+      cameraRunning = false;
+      document.getElementById('camBtn').textContent = '▶ Aktifkan Kamera';
+    });
+  }
+}
+
+function flipCamera(){
+  if(cameras.length < 2){ showToast('Hanya 1 kamera tersedia', 'err'); return; }
+  const idx = cameras.findIndex(c=>c.id===cameraId);
+  cameraId = cameras[(idx+1) % cameras.length].id;
+  if(cameraRunning){ stopCamera(); setTimeout(startCamera, 400); }
+}
+
+// Debounce agar barcode yang sama tidak terkirim berkali-kali dalam 1 sesi kamera terbuka
+let lastDecoded = null;
+let lastDecodedTime = 0;
+function onScanSuccess(text){
+  const now = Date.now();
+  if(text === lastDecoded && (now-lastDecodedTime) < 3000) return; // cegah duplikat scan cepat
+  lastDecoded = text; lastDecodedTime = now;
+  handleBarcode(text.trim().toUpperCase());
+}
+
+// ============================================================
+// SUBMIT KE DATABASE
+// ============================================================
+function submitManual(){
+  const val = document.getElementById('manualBarcode').value.trim().toUpperCase();
+  if(!val){ return; }
+  handleBarcode(val);
+  document.getElementById('manualBarcode').value = '';
+}
+
+async function handleBarcode(barcode){
+  const operatorId = document.getElementById('operatorId').value.trim();
+  const noLt = document.getElementById('noLt').value.trim().toUpperCase();
+  const driverName = document.getElementById('driverName').value.trim();
+  const nopol = document.getElementById('nopol').value.trim().toUpperCase();
+
+  if(!sbClient){ showToast('Hubungkan database dulu', 'err'); flashViewfinder('err'); return; }
+
+  const { data: sessionData } = await sbClient.auth.getSession();
+  if(!sessionData || !sessionData.session){
+    showToast('⚠️ Login dulu sebelum scan', 'err'); flashViewfinder('err'); return;
+  }
+
+  if(!operatorId){ showToast('Isi Operator ID dulu', 'err'); flashViewfinder('err'); return; }
+
+  const payload = {
+    barcode: barcode,
+    milestone: stepNames[currentStep] + (currentStep===1?'_IN':currentStep===2?'_OUT':currentStep===5?'_BATAM':''),
+    milestone_order: currentStep,
+    operator_id: operatorId,
+    no_lt: noLt || null,
+    driver: driverName || null,
+    nopol: nopol || null,
+    scanned_at: new Date().toISOString(),
+    device_info: navigator.userAgent.substring(0,80)
+  };
+
+  // Info tambahan hanya relevan & dikirim khusus milestone Pickup
+  if(currentStep === 1){
+    payload.slot_time = document.getElementById('slotTime').value.trim() || null;
+    payload.driver_hp = document.getElementById('driverHp').value.trim() || null;
+    payload.driver_rek = document.getElementById('driverRek').value.trim() || null;
+    payload.driver_bank = document.getElementById('driverBank').value.trim() || null;
+    payload.driver_atas_nama = document.getElementById('driverAtasNama').value.trim() || null;
+  }
+
+  // Tambahkan GPS jika tersedia — berguna untuk validasi lokasi scan
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(pos=>{
+      payload.lat = pos.coords.latitude;
+      payload.lng = pos.coords.longitude;
+    }, ()=>{}, {timeout:2000});
+  }
+
+  document.getElementById('lastScan').classList.add('show');
+  document.getElementById('lastScanCode').textContent = barcode;
+
+  if(!sbClient){
+    // mode demo tanpa koneksi database nyata
+    playBeep(true);
+    flashViewfinder('ok');
+    showToast('✓ '+barcode+' (mode demo, DB belum terhubung)', 'ok');
+    return;
+  }
+
+  const {error} = await sbClient.from('scan_events').insert(payload);
+  if(error){
+    playBeep(false);
+    flashViewfinder('err');
+    showToast('⚠️ '+error.message, 'err');
+  }else{
+    playBeep(true);
+    flashViewfinder('ok');
+    showToast('✓ '+barcode+' tersimpan ke database', 'ok');
+  }
+}
+
+function flashViewfinder(type){
+  const vf = document.getElementById('viewfinder');
+  vf.classList.add(type==='ok'?'flash-ok':'flash-err');
+  setTimeout(()=>vf.classList.remove('flash-ok','flash-err'), 600);
+}
+
+function playBeep(ok){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(ok?900:280, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime+0.25);
+    osc.start(); osc.stop(ctx.currentTime+0.25);
+  }catch(e){}
+}
+
+function showToast(msg, type){
+  const t = document.createElement('div');
+  t.className = 'toast '+type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2800);
+}
+</script>
+
+</body>
+</html>
