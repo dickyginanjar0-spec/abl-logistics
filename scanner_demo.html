@@ -290,6 +290,14 @@
     </div>
   </div>
 
+  <div class="panel" id="sailingExtraPanel" style="display:none;border-color:var(--primary-light,#3b82f6);">
+    <h2 style="color:var(--go);">🚢 Info Kapal (Khusus Sailing)</h2>
+    <div class="field">
+      <label>Nama Kapal</label>
+      <input type="text" id="namaKapal" placeholder="KM SERBA GUNA">
+    </div>
+  </div>
+
   <div class="panel">
     <h2>📷 Scan Barcode TO — <span id="stepLabel" style="color:var(--hazard)">PICKUP</span></h2>
 
@@ -381,6 +389,7 @@ document.querySelectorAll('.rail-stop').forEach(el=>{
     currentStep = parseInt(el.dataset.step);
     document.getElementById('stepLabel').textContent = stepNames[currentStep];
     document.getElementById('pickupExtraPanel').style.display = (currentStep === 1) ? 'block' : 'none';
+    document.getElementById('sailingExtraPanel').style.display = (currentStep === 4) ? 'block' : 'none';
   });
 });
 
@@ -530,6 +539,9 @@ async function handleBarcode(barcode){
     payload.driver_rek = document.getElementById('driverRek').value.trim() || null;
     payload.driver_bank = document.getElementById('driverBank').value.trim() || null;
     payload.driver_atas_nama = document.getElementById('driverAtasNama').value.trim() || null;
+  }
+  if(currentStep === 4){
+    payload.kapal = document.getElementById('namaKapal').value.trim() || null;
   }
 
   // Tambahkan GPS jika tersedia — berguna untuk validasi lokasi scan
