@@ -168,6 +168,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let sbClient = null;
 let allRows = [];
+let timelineData = {}; // no_lt -> row dari v_timeline_lt
 let currentFilter = 'ALL';
 const MILESTONES = ['t_pickup','t_trucking','t_transit','t_sailing','t_dooring'];
 const MS_LABELS = ['PICKUP','TRUCK','TRANSIT','SAIL','DOOR'];
@@ -240,6 +241,13 @@ async function fetchDashboard(){
   const { data, error } = await sbClient.from('v_dashboard_rekon').select('*');
   if(error){ showToast('Error: '+error.message); return; }
   allRows = data || [];
+
+  const { data: tData, error: tErr } = await sbClient.from('v_timeline_lt').select('*');
+  if(!tErr && tData){
+    timelineData = {};
+    tData.forEach(r => { timelineData[r.no_lt] = r; });
+  }
+
   document.getElementById('lastSync').textContent = 'Sync: '+new Date().toLocaleTimeString('id-ID');
   renderKPI();
   renderList();
@@ -314,6 +322,41 @@ function renderKPI(){
   document.getElementById('kOntime').textContent = ontimePct+'%';
 }
 
+function formatWaktu(iso){
+  if(!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) + ' ' + d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+}
+
+function buildNarasi(no_lt){
+  const t = timelineData[no_lt];
+  if(!t) return null;
+  const lines = [];
+
+  if(t.t_pickup){
+    lines.push(`📦 <b>Pickup</b> — ${formatWaktu(t.t_pickup)}${t.pickup_driver?` oleh driver <b>${t.pickup_driver}</b>`:''}${t.pickup_nopol?` (${t.pickup_nopol})`:''}`);
+  }
+  if(t.t_trucking){
+    lines.push(`🚚 <b>Trucking</b> — dibawa ${formatWaktu(t.t_trucking)}${t.trucking_driver?` oleh <b>${t.trucking_driver}</b>`:''}${t.trucking_nopol?` (${t.trucking_nopol})`:''}`);
+  }
+  if(t.t_transit){
+    const statusTxt = t.transit_status === 'OUTSTANDING' ? ' — ⚠️ ada selisih saat rekon' : ' — sesuai (MATCH)';
+    lines.push(`🏢 <b>Transit Jambi</b> — tiba ${formatWaktu(t.t_transit)}${statusTxt}`);
+  }
+  if(t.t_sailing){
+    lines.push(`🚢 <b>Sailing</b> — berangkat ${formatWaktu(t.t_sailing)}${t.nama_kapal?` dengan kapal <b>${t.nama_kapal}</b>`:''}`);
+  }
+  if(t.t_dooring){
+    lines.push(`🏗️ <b>Dooring Batam</b> — selesai ${formatWaktu(t.t_dooring)}${t.dooring_driver?` oleh <b>${t.dooring_driver}</b>`:''}${t.dooring_nopol?` (${t.dooring_nopol})`:''} → <span style="color:var(--go);">SLA FINISH</span>`);
+  }
+
+  if(lines.length === 0) return `<div class="lt-meta" style="font-style:italic;">Belum ada aktivitas scan untuk LT ini.</div>`;
+
+  return `<div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:12px;line-height:1.9;color:var(--text-mute);">
+    ${lines.join('<br>')}
+  </div>`;
+}
+
 function renderList(){
   const list = document.getElementById('ltList');
   let rows = allRows;
@@ -362,6 +405,7 @@ function renderList(){
       <div class="rail-labels">${MS_LABELS.map(l=>`<span>${l}</span>`).join('')}</div>
       <div class="progress-track"><div class="progress-fill ${progFillClass}" style="width:${progressPct}%"></div></div>
       <div class="lt-meta" style="margin-top:6px;">Durasi berjalan: ${(r.durasi_jam_berjalan||0).toFixed(1)} jam / target ${r.sla_target_jam} jam</div>
+      ${buildNarasi(r.no_lt) || ''}
     </div>`;
   }).join('');
 }
