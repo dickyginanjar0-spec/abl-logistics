@@ -128,6 +128,21 @@
     <a href="#" onclick="document.getElementById('configPanel').style.display='block';return false;" style="color:var(--text-mute);text-decoration:underline;">Tampilkan pengaturan koneksi manual</a>
   </p>
 
+  <div style="margin-bottom:8px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;" id="periodeLabel">📅 KPI Summary — Bulan Ini</h2>
+  </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px;">
+    <div class="kpi c-hazard"><div class="kpi-label">Total LT</div><div class="kpi-val" id="mTotalLt">-</div></div>
+    <div class="kpi"><div class="kpi-label">Total TO</div><div class="kpi-val" id="mTotalTo">-</div></div>
+    <div class="kpi"><div class="kpi-label">Total Paket</div><div class="kpi-val" id="mTotalPaket">-</div></div>
+    <div class="kpi"><div class="kpi-label">Total Kg</div><div class="kpi-val" id="mTotalKg">-</div></div>
+  </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px;">
+    <div class="kpi c-danger"><div class="kpi-label">Over SLA</div><div class="kpi-val" id="mOverSla">-</div></div>
+    <div class="kpi c-warn"><div class="kpi-label">Warning</div><div class="kpi-val" id="mWarning">-</div></div>
+    <div class="kpi c-go"><div class="kpi-label">On-Time %</div><div class="kpi-val" id="mOntime">-</div></div>
+  </div>
+
   <div class="kpi-grid">
     <div class="kpi c-hazard"><div class="kpi-label">Total LT</div><div class="kpi-val" id="kTotal">-</div></div>
     <div class="kpi c-go"><div class="kpi-label">Completed</div><div class="kpi-val" id="kCompleted">-</div></div>
@@ -242,6 +257,9 @@ async function fetchDashboard(){
   if(error){ showToast('Error: '+error.message); return; }
   allRows = data || [];
 
+  const { data: kpiData } = await sbClient.from('v_kpi_bulanan').select('*').single();
+  if(kpiData) renderKpiBulanan(kpiData);
+
   const { data: tData, error: tErr } = await sbClient.from('v_timeline_lt').select('*');
   if(!tErr && tData){
     timelineData = {};
@@ -251,6 +269,17 @@ async function fetchDashboard(){
   document.getElementById('lastSync').textContent = 'Sync: '+new Date().toLocaleTimeString('id-ID');
   renderKPI();
   renderList();
+}
+
+function renderKpiBulanan(k){
+  document.getElementById('periodeLabel').textContent = '📅 KPI Summary — ' + (k.periode || 'Bulan Ini');
+  document.getElementById('mTotalLt').textContent = k.total_lt ?? 0;
+  document.getElementById('mTotalTo').textContent = (k.total_to ?? 0).toLocaleString('id-ID');
+  document.getElementById('mTotalPaket').textContent = (k.total_paket ?? 0).toLocaleString('id-ID');
+  document.getElementById('mTotalKg').textContent = parseFloat(k.total_kg ?? 0).toLocaleString('id-ID');
+  document.getElementById('mOverSla').textContent = k.over_sla ?? 0;
+  document.getElementById('mWarning').textContent = k.warning ?? 0;
+  document.getElementById('mOntime').textContent = (k.ontime_pct ?? 0) + '%';
 }
 
 async function fetchArmadaSummary(){
@@ -393,8 +422,8 @@ function renderList(){
     <div class="lt-card">
       <div class="lt-top">
         <div>
-          <div class="lt-no">${r.no_lt}</div>
-          <div class="lt-meta">Tujuan: ${r.tujuan||'-'} · Paket: ${r.paket_terscan}/${r.expected_paket} · ${(r.kg_terscan||0).toLocaleString('id-ID')} Kg</div>
+          <div class="lt-no">${r.no_lt}${r.no_stt?` <span style="color:var(--text-mute);font-size:11px;">(STT: ${r.no_stt})</span>`:''}</div>
+          <div class="lt-meta">Tujuan: ${r.tujuan||'-'} · TO: ${r.expected_to||'-'} · Paket: ${r.paket_terscan}/${r.expected_paket} · ${(r.kg_terscan||0).toLocaleString('id-ID')} Kg</div>
         </div>
         <div style="display:flex;gap:6px;">
           <span class="badge ${statusClass}">${r.status_rekon}</span>
@@ -406,8 +435,39 @@ function renderList(){
       <div class="progress-track"><div class="progress-fill ${progFillClass}" style="width:${progressPct}%"></div></div>
       <div class="lt-meta" style="margin-top:6px;">Durasi berjalan: ${(r.durasi_jam_berjalan||0).toFixed(1)} jam / target ${r.sla_target_jam} jam</div>
       ${buildNarasi(r.no_lt) || ''}
+      <button class="btn btn-steel" style="width:100%;margin-top:12px;padding:10px;font-size:12px;" onclick="copyWaReport('${r.no_lt}')">📋 Copy Laporan WA</button>
     </div>`;
   }).join('');
+}
+
+function copyWaReport(no_lt){
+  const r = allRows.find(x => x.no_lt === no_lt);
+  const t = timelineData[no_lt] || {};
+  if(!r){ showToast('Data tidak ditemukan'); return; }
+
+  const tglPickup = t.t_pickup ? new Date(t.t_pickup).toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'}) : '-';
+
+  const teks =
+`*KEGIATAN UNIT DHS*
+*LTL BATAM SEA*
+*TGL ${tglPickup.toUpperCase()}*
+
+*DRIVER :${(t.pickup_driver||'-').toUpperCase()}*
+*NO.POL :${(t.pickup_nopol||'-').toUpperCase()}*
+*NO STT :${r.no_stt||'-'}*
+*NO LT  :${r.no_lt}*
+*TOTAL TO  :${r.expected_to||'-'}*
+*TOTAL PAKET :${r.expected_paket||'-'}*
+*TOTAL KG. :${parseFloat(r.expected_kg||0).toLocaleString('id-ID')}*
+
+*DEST  :${r.tujuan||'-'}*
+*STATUS :${r.status_rekon}*`;
+
+  navigator.clipboard.writeText(teks).then(()=>{
+    showToast('✓ Laporan disalin, siap paste ke WhatsApp');
+  }).catch(()=>{
+    showToast('Gagal copy — browser tidak izinkan clipboard');
+  });
 }
 
 function showToast(msg){
