@@ -129,12 +129,11 @@
   </p>
 
   <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;">📅 KPI Summary</h2>
+    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;">📅 KPI Summary — Bulan Berjalan</h2>
     <div class="filter-chips" id="periodeChips">
       <div class="chip" data-p="TODAY">Hari Ini</div>
       <div class="chip" data-p="WEEK">Minggu Ini</div>
       <div class="chip active" data-p="MONTH">Bulan Ini</div>
-      <div class="chip" data-p="ALL">Semua</div>
     </div>
   </div>
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px;">
@@ -152,6 +151,28 @@
     <div class="kpi c-danger"><div class="kpi-label">Over SLA</div><div class="kpi-val" id="mOverSla">-</div></div>
     <div class="kpi c-warn"><div class="kpi-label">Warning</div><div class="kpi-val" id="mWarning">-</div></div>
     <div class="kpi c-go"><div class="kpi-label">On-Time %</div><div class="kpi-val" id="mOntime">-</div></div>
+  </div>
+
+  <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--line);">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;margin-bottom:0;color:var(--text-mute);cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleArsip()">
+      <span>🗄️ Lihat Arsip Bulan Lalu</span>
+      <span id="arsipToggleIcon" style="font-size:13px;">▸ Buka</span>
+    </h2>
+    <div id="arsipPanel" style="display:none;margin-top:14px;">
+      <div class="config-row" style="margin-bottom:12px;">
+        <select id="arsipBulan" style="flex:1;padding:11px 12px;background:var(--panel-raised);border:1px solid var(--steel);border-radius:6px;color:var(--text);font-size:13px;">
+          <option value="0">Januari</option><option value="1">Februari</option><option value="2">Maret</option>
+          <option value="3">April</option><option value="4">Mei</option><option value="5">Juni</option>
+          <option value="6">Juli</option><option value="7">Agustus</option><option value="8" selected>September</option>
+          <option value="9">Oktober</option><option value="10">November</option><option value="11">Desember</option>
+        </select>
+        <select id="arsipTahun" style="padding:11px 12px;background:var(--panel-raised);border:1px solid var(--steel);border-radius:6px;color:var(--text);font-size:13px;">
+          <option value="2025">2025</option><option value="2026" selected>2026</option><option value="2027">2027</option>
+        </select>
+        <button class="btn btn-hazard" onclick="cariArsip()">🔍 Cari</button>
+      </div>
+      <div id="arsipResult"></div>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -284,7 +305,6 @@ document.querySelectorAll('#periodeChips .chip').forEach(chip=>{
 });
 
 function filterByPeriode(rows, periode){
-  if(periode === 'ALL') return rows;
   const now = new Date();
   return rows.filter(r=>{
     if(!r.sla_start) return false;
@@ -305,8 +325,15 @@ function filterByPeriode(rows, periode){
   });
 }
 
-function renderKpiBulanan(){
-  const rows = filterByPeriode(allRows, currentPeriode);
+function filterByBulanTahun(rows, bulan, tahun){
+  return rows.filter(r=>{
+    if(!r.sla_start) return false;
+    const d = new Date(r.sla_start);
+    return d.getMonth() === bulan && d.getFullYear() === tahun;
+  });
+}
+
+function hitungKpi(rows){
   const totalLt = rows.length;
   const totalTo = rows.reduce((s,r)=>s+(r.expected_to||0),0);
   const totalPaket = rows.reduce((s,r)=>s+(r.expected_paket||0),0);
@@ -318,17 +345,62 @@ function renderKpiBulanan(){
   const completed = rows.filter(r=>r.status_rekon==='COMPLETED').length;
   const progress = rows.filter(r=>r.status_rekon==='ON PROGRESS').length;
   const outstanding = rows.filter(r=>r.status_rekon==='OUTSTANDING').length;
+  return {totalLt, totalTo, totalPaket, totalKg, overSla, warning, ontimePct, completed, progress, outstanding};
+}
 
-  document.getElementById('mTotalLt').textContent = totalLt;
-  document.getElementById('mTotalTo').textContent = totalTo.toLocaleString('id-ID');
-  document.getElementById('mTotalPaket').textContent = totalPaket.toLocaleString('id-ID');
-  document.getElementById('mTotalKg').textContent = totalKg.toLocaleString('id-ID');
-  document.getElementById('mOverSla').textContent = overSla;
-  document.getElementById('mWarning').textContent = warning;
-  document.getElementById('mOntime').textContent = ontimePct + '%';
-  document.getElementById('mCompleted').textContent = completed;
-  document.getElementById('mProgress').textContent = progress;
-  document.getElementById('mOutstanding').textContent = outstanding;
+function toggleArsip(){
+  const el = document.getElementById('arsipPanel');
+  const icon = document.getElementById('arsipToggleIcon');
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  icon.textContent = isHidden ? '▾ Tutup' : '▸ Buka';
+}
+
+const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function cariArsip(){
+  const bulan = parseInt(document.getElementById('arsipBulan').value);
+  const tahun = parseInt(document.getElementById('arsipTahun').value);
+  const rows = filterByBulanTahun(allRows, bulan, tahun);
+  const k = hitungKpi(rows);
+
+  if(rows.length === 0){
+    document.getElementById('arsipResult').innerHTML = `<div class="empty" style="padding:20px;"><p>Tidak ada data untuk ${NAMA_BULAN[bulan]} ${tahun}</p></div>`;
+    return;
+  }
+
+  document.getElementById('arsipResult').innerHTML = `
+    <div style="background:var(--panel-raised);border-radius:8px;padding:14px;margin-top:8px;">
+      <div style="font-family:'Oswald',sans-serif;font-size:13px;color:var(--hazard);margin-bottom:10px;text-transform:uppercase;">📁 Arsip ${NAMA_BULAN[bulan]} ${tahun}</div>
+      <div style="font-size:12px;line-height:2;color:var(--text-mute);">
+        Total LT: <b style="color:var(--text);">${k.totalLt}</b> ·
+        Total TO: <b style="color:var(--text);">${k.totalTo.toLocaleString('id-ID')}</b> ·
+        Total Paket: <b style="color:var(--text);">${k.totalPaket.toLocaleString('id-ID')}</b><br>
+        Total Kg: <b style="color:var(--text);">${k.totalKg.toLocaleString('id-ID')}</b> ·
+        Completed: <b style="color:var(--go);">${k.completed}</b> ·
+        On Progress: <b style="color:var(--hazard);">${k.progress}</b> ·
+        Outstanding: <b style="color:var(--danger);">${k.outstanding}</b><br>
+        Over SLA: <b style="color:var(--danger);">${k.overSla}</b> ·
+        Warning: <b style="color:var(--warn);">${k.warning}</b> ·
+        On-Time: <b style="color:var(--go);">${k.ontimePct}%</b>
+      </div>
+    </div>`;
+}
+
+function renderKpiBulanan(){
+  const rows = filterByPeriode(allRows, currentPeriode);
+  const k = hitungKpi(rows);
+
+  document.getElementById('mTotalLt').textContent = k.totalLt;
+  document.getElementById('mTotalTo').textContent = k.totalTo.toLocaleString('id-ID');
+  document.getElementById('mTotalPaket').textContent = k.totalPaket.toLocaleString('id-ID');
+  document.getElementById('mTotalKg').textContent = k.totalKg.toLocaleString('id-ID');
+  document.getElementById('mOverSla').textContent = k.overSla;
+  document.getElementById('mWarning').textContent = k.warning;
+  document.getElementById('mOntime').textContent = k.ontimePct + '%';
+  document.getElementById('mCompleted').textContent = k.completed;
+  document.getElementById('mProgress').textContent = k.progress;
+  document.getElementById('mOutstanding').textContent = k.outstanding;
 }
 
 function toggleArmada(){
