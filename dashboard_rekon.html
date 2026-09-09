@@ -128,8 +128,14 @@
     <a href="#" onclick="document.getElementById('configPanel').style.display='block';return false;" style="color:var(--text-mute);text-decoration:underline;">Tampilkan pengaturan koneksi manual</a>
   </p>
 
-  <div style="margin-bottom:8px;">
-    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;" id="periodeLabel">📅 KPI Summary — Bulan Ini</h2>
+  <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;">📅 KPI Summary</h2>
+    <div class="filter-chips" id="periodeChips">
+      <div class="chip" data-p="TODAY">Hari Ini</div>
+      <div class="chip" data-p="WEEK">Minggu Ini</div>
+      <div class="chip active" data-p="MONTH">Bulan Ini</div>
+      <div class="chip" data-p="ALL">Semua</div>
+    </div>
   </div>
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px;">
     <div class="kpi c-hazard"><div class="kpi-label">Total LT</div><div class="kpi-val" id="mTotalLt">-</div></div>
@@ -137,19 +143,15 @@
     <div class="kpi"><div class="kpi-label">Total Paket</div><div class="kpi-val" id="mTotalPaket">-</div></div>
     <div class="kpi"><div class="kpi-label">Total Kg</div><div class="kpi-val" id="mTotalKg">-</div></div>
   </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+    <div class="kpi c-go"><div class="kpi-label">Completed</div><div class="kpi-val" id="mCompleted">-</div></div>
+    <div class="kpi"><div class="kpi-label">On Progress</div><div class="kpi-val" id="mProgress">-</div></div>
+    <div class="kpi c-danger"><div class="kpi-label">Outstanding</div><div class="kpi-val" id="mOutstanding">-</div></div>
+  </div>
   <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px;">
     <div class="kpi c-danger"><div class="kpi-label">Over SLA</div><div class="kpi-val" id="mOverSla">-</div></div>
     <div class="kpi c-warn"><div class="kpi-label">Warning</div><div class="kpi-val" id="mWarning">-</div></div>
     <div class="kpi c-go"><div class="kpi-label">On-Time %</div><div class="kpi-val" id="mOntime">-</div></div>
-  </div>
-
-  <div class="kpi-grid">
-    <div class="kpi c-hazard"><div class="kpi-label">Total LT</div><div class="kpi-val" id="kTotal">-</div></div>
-    <div class="kpi c-go"><div class="kpi-label">Completed</div><div class="kpi-val" id="kCompleted">-</div></div>
-    <div class="kpi"><div class="kpi-label">On Progress</div><div class="kpi-val" id="kProgress">-</div></div>
-    <div class="kpi c-danger"><div class="kpi-label">Outstanding</div><div class="kpi-val" id="kOutstanding">-</div></div>
-    <div class="kpi"><div class="kpi-label">Total Paket</div><div class="kpi-val" id="kPaket">-</div></div>
-    <div class="kpi c-warn"><div class="kpi-label">On-Time %</div><div class="kpi-val" id="kOntime">-</div></div>
   </div>
 
   <div class="toolbar">
@@ -165,8 +167,11 @@
   <div id="ltList"></div>
 
   <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--line);">
-    <h2 style="font-family:'Oswald',sans-serif;font-size:16px;text-transform:uppercase;margin-bottom:14px;color:var(--text-mute);">🚛 Ringkasan Armada Sewa</h2>
-    <div id="armadaList"></div>
+    <h2 style="font-family:'Oswald',sans-serif;font-size:16px;text-transform:uppercase;margin-bottom:0;color:var(--text-mute);cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleArmada()">
+      <span>🚛 Ringkasan Armada Sewa</span>
+      <span id="armadaToggleIcon" style="font-size:13px;">▸ Tampilkan</span>
+    </h2>
+    <div id="armadaList" style="display:none;margin-top:14px;"></div>
   </div>
 
   </div>
@@ -257,9 +262,6 @@ async function fetchDashboard(){
   if(error){ showToast('Error: '+error.message); return; }
   allRows = data || [];
 
-  const { data: kpiData } = await sbClient.from('v_kpi_bulanan').select('*').single();
-  if(kpiData) renderKpiBulanan(kpiData);
-
   const { data: tData, error: tErr } = await sbClient.from('v_timeline_lt').select('*');
   if(!tErr && tData){
     timelineData = {};
@@ -267,19 +269,74 @@ async function fetchDashboard(){
   }
 
   document.getElementById('lastSync').textContent = 'Sync: '+new Date().toLocaleTimeString('id-ID');
-  renderKPI();
+  renderKpiBulanan();
   renderList();
 }
 
-function renderKpiBulanan(k){
-  document.getElementById('periodeLabel').textContent = '📅 KPI Summary — ' + (k.periode || 'Bulan Ini');
-  document.getElementById('mTotalLt').textContent = k.total_lt ?? 0;
-  document.getElementById('mTotalTo').textContent = (k.total_to ?? 0).toLocaleString('id-ID');
-  document.getElementById('mTotalPaket').textContent = (k.total_paket ?? 0).toLocaleString('id-ID');
-  document.getElementById('mTotalKg').textContent = parseFloat(k.total_kg ?? 0).toLocaleString('id-ID');
-  document.getElementById('mOverSla').textContent = k.over_sla ?? 0;
-  document.getElementById('mWarning').textContent = k.warning ?? 0;
-  document.getElementById('mOntime').textContent = (k.ontime_pct ?? 0) + '%';
+let currentPeriode = 'MONTH';
+document.querySelectorAll('#periodeChips .chip').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    document.querySelectorAll('#periodeChips .chip').forEach(c=>c.classList.remove('active'));
+    chip.classList.add('active');
+    currentPeriode = chip.dataset.p;
+    renderKpiBulanan();
+  });
+});
+
+function filterByPeriode(rows, periode){
+  if(periode === 'ALL') return rows;
+  const now = new Date();
+  return rows.filter(r=>{
+    if(!r.sla_start) return false;
+    const d = new Date(r.sla_start);
+    if(periode === 'TODAY'){
+      return d.toDateString() === now.toDateString();
+    }
+    if(periode === 'WEEK'){
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0,0,0,0);
+      return d >= startOfWeek;
+    }
+    if(periode === 'MONTH'){
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }
+    return true;
+  });
+}
+
+function renderKpiBulanan(){
+  const rows = filterByPeriode(allRows, currentPeriode);
+  const totalLt = rows.length;
+  const totalTo = rows.reduce((s,r)=>s+(r.expected_to||0),0);
+  const totalPaket = rows.reduce((s,r)=>s+(r.expected_paket||0),0);
+  const totalKg = rows.reduce((s,r)=>s+parseFloat(r.expected_kg||0),0);
+  const overSla = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.durasi_jam_berjalan > r.sla_target_jam*1.2).length;
+  const warning = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.durasi_jam_berjalan > r.sla_target_jam && r.durasi_jam_berjalan <= r.sla_target_jam*1.2).length;
+  const ontimeCount = rows.filter(r=> r.status_rekon==='COMPLETED' || r.durasi_jam_berjalan <= r.sla_target_jam).length;
+  const ontimePct = totalLt > 0 ? Math.round((ontimeCount/totalLt)*100) : 0;
+  const completed = rows.filter(r=>r.status_rekon==='COMPLETED').length;
+  const progress = rows.filter(r=>r.status_rekon==='ON PROGRESS').length;
+  const outstanding = rows.filter(r=>r.status_rekon==='OUTSTANDING').length;
+
+  document.getElementById('mTotalLt').textContent = totalLt;
+  document.getElementById('mTotalTo').textContent = totalTo.toLocaleString('id-ID');
+  document.getElementById('mTotalPaket').textContent = totalPaket.toLocaleString('id-ID');
+  document.getElementById('mTotalKg').textContent = totalKg.toLocaleString('id-ID');
+  document.getElementById('mOverSla').textContent = overSla;
+  document.getElementById('mWarning').textContent = warning;
+  document.getElementById('mOntime').textContent = ontimePct + '%';
+  document.getElementById('mCompleted').textContent = completed;
+  document.getElementById('mProgress').textContent = progress;
+  document.getElementById('mOutstanding').textContent = outstanding;
+}
+
+function toggleArmada(){
+  const el = document.getElementById('armadaList');
+  const icon = document.getElementById('armadaToggleIcon');
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  icon.textContent = isHidden ? '▾ Sembunyikan' : '▸ Tampilkan';
 }
 
 async function fetchArmadaSummary(){
@@ -332,23 +389,6 @@ function subscribeRealtime(){
       fetchDashboard();
     })
     .subscribe();
-}
-
-function renderKPI(){
-  const total = allRows.length;
-  const completed = allRows.filter(r=>r.status_rekon==='COMPLETED').length;
-  const progress = allRows.filter(r=>r.status_rekon==='ON PROGRESS').length;
-  const outstanding = allRows.filter(r=>r.status_rekon==='OUTSTANDING').length;
-  const paket = allRows.reduce((s,r)=>s+(r.paket_terscan||0),0);
-  const ontimeCount = allRows.filter(r=> r.durasi_jam_berjalan <= r.sla_target_jam).length;
-  const ontimePct = total>0 ? ((ontimeCount/total)*100).toFixed(0) : 0;
-
-  document.getElementById('kTotal').textContent = total;
-  document.getElementById('kCompleted').textContent = completed;
-  document.getElementById('kProgress').textContent = progress;
-  document.getElementById('kOutstanding').textContent = outstanding;
-  document.getElementById('kPaket').textContent = paket.toLocaleString('id-ID');
-  document.getElementById('kOntime').textContent = ontimePct+'%';
 }
 
 function formatWaktu(iso){
