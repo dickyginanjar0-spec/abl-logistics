@@ -50,6 +50,7 @@
   .filter-chips{display:flex;gap:6px;flex-wrap:wrap;}
   .chip{padding:7px 14px;background:var(--panel-raised);border:1px solid var(--steel);border-radius:20px;font-size:11px;font-weight:600;color:var(--text-mute);cursor:pointer;}
   .chip.active{background:var(--hazard);color:#14171a;border-color:var(--hazard);}
+  .chip.active.tujuan-chip{background:var(--go);border-color:var(--go);}
 
   .lt-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:10px;}
   .lt-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
@@ -63,6 +64,7 @@
   .badge.sla-ok{background:rgba(0,200,150,0.15);color:var(--go);}
   .badge.sla-warn{background:rgba(255,200,74,0.15);color:var(--warn);}
   .badge.sla-over{background:rgba(255,77,77,0.15);color:var(--danger);}
+  .badge.tujuan-badge{background:rgba(0,200,150,0.1);color:var(--go);border:1px solid var(--go-dim);}
 
   .rail-mini{display:flex;gap:4px;margin-top:12px;}
   .rail-mini .seg{flex:1;height:5px;border-radius:3px;background:var(--line);position:relative;}
@@ -127,6 +129,20 @@
   <p class="sub" style="text-align:center;margin-bottom:16px;">
     <a href="#" onclick="document.getElementById('configPanel').style.display='block';return false;" style="color:var(--text-mute);text-decoration:underline;">Tampilkan pengaturan koneksi manual</a>
   </p>
+
+  <div style="margin-bottom:8px;">
+    <h2 style="font-family:'Oswald',sans-serif;font-size:13px;text-transform:uppercase;color:var(--text-mute);letter-spacing:0.5px;margin-bottom:8px;">🌏 Filter Tujuan</h2>
+    <div class="filter-chips" id="tujuanChips">
+      <div class="chip tujuan-chip active" data-t="ALL">Semua</div>
+      <div class="chip tujuan-chip" data-t="BATAM">Batam</div>
+      <div class="chip tujuan-chip" data-t="KARIMUN">Karimun</div>
+      <div class="chip tujuan-chip" data-t="MERAL">Meral</div>
+      <div class="chip tujuan-chip" data-t="MERAL BARAT">Meral Barat</div>
+      <div class="chip tujuan-chip" data-t="KUNDUR">Kundur</div>
+      <div class="chip tujuan-chip" data-t="SINGKEP">Singkep</div>
+      <div class="chip tujuan-chip" data-t="LINGGA">Lingga</div>
+    </div>
+  </div>
 
   <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
     <h2 style="font-family:'Oswald',sans-serif;font-size:15px;text-transform:uppercase;color:var(--hazard);letter-spacing:0.5px;">📅 KPI Summary — Bulan Berjalan</h2>
@@ -211,6 +227,7 @@ let sbClient = null;
 let allRows = [];
 let timelineData = {}; // no_lt -> row dari v_timeline_lt
 let currentFilter = 'ALL';
+let currentTujuan = 'ALL';
 const MILESTONES = ['t_pickup','t_trucking','t_transit','t_sailing','t_dooring'];
 const MS_LABELS = ['PICKUP','TRUCK','TRANSIT','SAIL','DOOR'];
 
@@ -221,11 +238,21 @@ window.addEventListener('DOMContentLoaded', ()=>{
   connectSupabase();
 });
 
-document.querySelectorAll('.chip').forEach(chip=>{
+document.querySelectorAll('#filterChips .chip').forEach(chip=>{
   chip.addEventListener('click', ()=>{
-    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+    document.querySelectorAll('#filterChips .chip').forEach(c=>c.classList.remove('active'));
     chip.classList.add('active');
     currentFilter = chip.dataset.f;
+    renderList();
+  });
+});
+
+document.querySelectorAll('#tujuanChips .chip').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    document.querySelectorAll('#tujuanChips .chip').forEach(c=>c.classList.remove('active'));
+    chip.classList.add('active');
+    currentTujuan = chip.dataset.t;
+    renderKpiBulanan();
     renderList();
   });
 });
@@ -304,6 +331,11 @@ document.querySelectorAll('#periodeChips .chip').forEach(chip=>{
   });
 });
 
+function filterByTujuan(rows, tujuan){
+  if(tujuan === 'ALL') return rows;
+  return rows.filter(r => (r.tujuan||'').toUpperCase() === tujuan);
+}
+
 function filterByPeriode(rows, periode){
   const now = new Date();
   return rows.filter(r=>{
@@ -338,9 +370,9 @@ function hitungKpi(rows){
   const totalTo = rows.reduce((s,r)=>s+(r.expected_to||0),0);
   const totalPaket = rows.reduce((s,r)=>s+(r.expected_paket||0),0);
   const totalKg = rows.reduce((s,r)=>s+parseFloat(r.expected_kg||0),0);
-  const overSla = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.durasi_jam_berjalan > r.sla_target_jam*1.2).length;
-  const warning = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.durasi_jam_berjalan > r.sla_target_jam && r.durasi_jam_berjalan <= r.sla_target_jam*1.2).length;
-  const ontimeCount = rows.filter(r=> r.status_rekon==='COMPLETED' || r.durasi_jam_berjalan <= r.sla_target_jam).length;
+  const overSla = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.status_rekon!=='BELUM MULAI' && r.status_rekon!=='OUTSTANDING' && r.durasi_jam_berjalan > r.sla_target_jam*1.2).length;
+  const warning = rows.filter(r=> r.status_rekon!=='COMPLETED' && r.status_rekon!=='BELUM MULAI' && r.status_rekon!=='OUTSTANDING' && r.durasi_jam_berjalan > r.sla_target_jam && r.durasi_jam_berjalan <= r.sla_target_jam*1.2).length;
+  const ontimeCount = totalLt - overSla;
   const ontimePct = totalLt > 0 ? Math.round((ontimeCount/totalLt)*100) : 0;
   const completed = rows.filter(r=>r.status_rekon==='COMPLETED').length;
   const progress = rows.filter(r=>r.status_rekon==='ON PROGRESS').length;
@@ -361,7 +393,8 @@ const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Ag
 function cariArsip(){
   const bulan = parseInt(document.getElementById('arsipBulan').value);
   const tahun = parseInt(document.getElementById('arsipTahun').value);
-  const rows = filterByBulanTahun(allRows, bulan, tahun);
+  let rows = filterByBulanTahun(allRows, bulan, tahun);
+  rows = filterByTujuan(rows, currentTujuan);
   const k = hitungKpi(rows);
 
   if(rows.length === 0){
@@ -371,7 +404,7 @@ function cariArsip(){
 
   document.getElementById('arsipResult').innerHTML = `
     <div style="background:var(--panel-raised);border-radius:8px;padding:14px;margin-top:8px;">
-      <div style="font-family:'Oswald',sans-serif;font-size:13px;color:var(--hazard);margin-bottom:10px;text-transform:uppercase;">📁 Arsip ${NAMA_BULAN[bulan]} ${tahun}</div>
+      <div style="font-family:'Oswald',sans-serif;font-size:13px;color:var(--hazard);margin-bottom:10px;text-transform:uppercase;">📁 Arsip ${NAMA_BULAN[bulan]} ${tahun}${currentTujuan!=='ALL'?' — '+currentTujuan:''}</div>
       <div style="font-size:12px;line-height:2;color:var(--text-mute);">
         Total LT: <b style="color:var(--text);">${k.totalLt}</b> ·
         Total TO: <b style="color:var(--text);">${k.totalTo.toLocaleString('id-ID')}</b> ·
@@ -388,7 +421,8 @@ function cariArsip(){
 }
 
 function renderKpiBulanan(){
-  const rows = filterByPeriode(allRows, currentPeriode);
+  let rows = filterByPeriode(allRows, currentPeriode);
+  rows = filterByTujuan(rows, currentTujuan);
   const k = hitungKpi(rows);
 
   document.getElementById('mTotalLt').textContent = k.totalLt;
@@ -488,7 +522,7 @@ function buildNarasi(no_lt){
     lines.push(`🚢 <b>Sailing</b> — berangkat ${formatWaktu(t.t_sailing)}${t.nama_kapal?` dengan kapal <b>${t.nama_kapal}</b>`:''}`);
   }
   if(t.t_dooring){
-    lines.push(`🏗️ <b>Dooring Batam</b> — selesai ${formatWaktu(t.t_dooring)}${t.dooring_driver?` oleh <b>${t.dooring_driver}</b>`:''}${t.dooring_nopol?` (${t.dooring_nopol})`:''} → <span style="color:var(--go);">SLA FINISH</span>`);
+    lines.push(`🏗️ <b>Dooring</b> — selesai ${formatWaktu(t.t_dooring)}${t.dooring_driver?` oleh <b>${t.dooring_driver}</b>`:''}${t.dooring_nopol?` (${t.dooring_nopol})`:''} → <span style="color:var(--go);">SLA FINISH</span>`);
   }
 
   if(lines.length === 0) return `<div class="lt-meta" style="font-style:italic;">Belum ada aktivitas scan untuk LT ini.</div>`;
@@ -501,6 +535,7 @@ function buildNarasi(no_lt){
 function renderList(){
   const list = document.getElementById('ltList');
   let rows = allRows;
+  rows = filterByTujuan(rows, currentTujuan);
   if(currentFilter !== 'ALL') rows = rows.filter(r=>r.status_rekon===currentFilter);
 
   if(rows.length===0){
@@ -514,9 +549,11 @@ function renderList(){
       'OUTSTANDING':'outstanding','BELUM MULAI':'belum'
     }[r.status_rekon] || 'belum';
 
-    const slaRatio = r.sla_target_jam ? (r.durasi_jam_berjalan / r.sla_target_jam) : 0;
+    const slaRatio = (r.sla_target_jam && r.durasi_jam_berjalan!=null) ? (r.durasi_jam_berjalan / r.sla_target_jam) : 0;
     let slaClass = 'sla-ok', slaLabel = 'ON TIME';
-    if(slaRatio > 1.2){ slaClass='sla-over'; slaLabel='OVER SLA'; }
+    if(r.status_rekon==='OUTSTANDING'){ slaClass='sla-over'; slaLabel='DI GUDANG'; }
+    else if(r.status_rekon==='BELUM MULAI'){ slaClass='sla-ok'; slaLabel='BELUM SCAN'; }
+    else if(slaRatio > 1.2){ slaClass='sla-over'; slaLabel='OVER SLA'; }
     else if(slaRatio > 1){ slaClass='sla-warn'; slaLabel='WARNING'; }
 
     const doneCount = MILESTONES.filter(m=>r[m]).length;
@@ -535,7 +572,10 @@ function renderList(){
       <div class="lt-top">
         <div>
           <div class="lt-no">${r.no_lt}${r.no_stt?` <span style="color:var(--text-mute);font-size:11px;">(STT: ${r.no_stt})</span>`:''}</div>
-          <div class="lt-meta">Tujuan: ${r.tujuan||'-'} · TO: ${r.expected_to||'-'} · Paket: ${r.paket_terscan}/${r.expected_paket} · ${(r.kg_terscan||0).toLocaleString('id-ID')} Kg</div>
+          <div class="lt-meta">
+            <span class="badge tujuan-badge" style="margin-right:6px;">${r.tujuan||'-'}</span>
+            TO: ${r.expected_to||'-'} · Paket: ${r.paket_terscan}/${r.expected_paket} · ${(r.kg_terscan||0).toLocaleString('id-ID')} Kg
+          </div>
         </div>
         <div style="display:flex;gap:6px;">
           <span class="badge ${statusClass}">${r.status_rekon}</span>
@@ -545,7 +585,7 @@ function renderList(){
       <div class="rail-mini">${railHtml}</div>
       <div class="rail-labels">${MS_LABELS.map(l=>`<span>${l}</span>`).join('')}</div>
       <div class="progress-track"><div class="progress-fill ${progFillClass}" style="width:${progressPct}%"></div></div>
-      <div class="lt-meta" style="margin-top:6px;">Durasi berjalan: ${(r.durasi_jam_berjalan||0).toFixed(1)} jam / target ${r.sla_target_jam} jam</div>
+      <div class="lt-meta" style="margin-top:6px;">Durasi berjalan: ${r.durasi_jam_berjalan!=null ? r.durasi_jam_berjalan.toFixed(1)+' jam' : '-'} / target ${r.sla_target_jam} jam</div>
       ${buildNarasi(r.no_lt) || ''}
       <button class="btn btn-steel" style="width:100%;margin-top:12px;padding:10px;font-size:12px;" onclick="copyWaReport('${r.no_lt}')">📋 Copy Laporan WA</button>
     </div>`;
@@ -558,10 +598,11 @@ function copyWaReport(no_lt){
   if(!r){ showToast('Data tidak ditemukan'); return; }
 
   const tglPickup = t.t_pickup ? new Date(t.t_pickup).toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'}) : '-';
+  const tujuanTxt = (r.tujuan || 'BATAM').toUpperCase();
 
   const teks =
 `*KEGIATAN UNIT DHS*
-*LTL BATAM SEA*
+*LTL ${tujuanTxt} SEA*
 *TGL ${tglPickup.toUpperCase()}*
 
 *DRIVER :${(t.pickup_driver||'-').toUpperCase()}*
@@ -572,7 +613,7 @@ function copyWaReport(no_lt){
 *TOTAL PAKET :${r.expected_paket||'-'}*
 *TOTAL KG. :${parseFloat(r.expected_kg||0).toLocaleString('id-ID')}*
 
-*DEST  :${r.tujuan||'-'}*
+*DEST  :${tujuanTxt}*
 *STATUS :${r.status_rekon}*`;
 
   navigator.clipboard.writeText(teks).then(()=>{
