@@ -31,7 +31,6 @@
     min-height:100vh;
     -webkit-font-smoothing:antialiased;
   }
-  /* Hazard stripe top bar — signature element */
   .stripe-bar{
     height:6px;
     background:repeating-linear-gradient(135deg,var(--hazard) 0 14px,var(--asphalt) 14px 28px);
@@ -57,7 +56,6 @@
   }
   .sub{color:var(--text-mute);font-size:12px;margin-top:4px;}
 
-  /* Conveyor milestone rail */
   .rail{
     display:flex;
     overflow-x:auto;
@@ -120,7 +118,6 @@
   }
   .field input:focus{outline:none;border-color:var(--hazard);}
 
-  /* Camera viewfinder — signature */
   .viewfinder{
     position:relative;
     background:#000;
@@ -131,16 +128,6 @@
     border:1px solid var(--steel);
   }
   #qr-reader{width:100%;}
-  .vf-corners{
-    position:absolute;inset:14%;
-    pointer-events:none;
-    border:0;
-  }
-  .vf-corners::before, .vf-corners::after,
-  .vf-corner-b::before, .vf-corner-b::after{
-    content:'';position:absolute;width:28px;height:28px;
-    border-color:var(--hazard);border-style:solid;
-  }
   .corner-tl{top:14%;left:14%;border-width:3px 0 0 3px;width:28px;height:28px;position:absolute;}
   .corner-tr{top:14%;right:14%;border-width:3px 3px 0 0;width:28px;height:28px;position:absolute;}
   .corner-bl{bottom:14%;left:14%;border-width:0 0 3px 3px;width:28px;height:28px;position:absolute;}
@@ -217,11 +204,11 @@
 </header>
 
 <div class="rail" id="rail">
-  <div class="rail-stop active" data-step="1" data-name="PICKUP_IN"><span class="num">1</span>PICKUP</div>
-  <div class="rail-stop" data-step="2" data-name="TRUCKING_OUT"><span class="num">2</span>TRUCKING</div>
-  <div class="rail-stop" data-step="3" data-name="TRANSIT"><span class="num">3</span>TRANSIT</div>
-  <div class="rail-stop" data-step="4" data-name="SAILING"><span class="num">4</span>SAILING</div>
-  <div class="rail-stop" data-step="5" data-name="DOORING_BATAM"><span class="num">5</span>DOORING</div>
+  <div class="rail-stop active" data-step="1" data-name="PICKUP"><span class="num">1</span>PICKUP</div>
+  <div class="rail-stop" data-step="2" data-name="TRUCKING"><span class="num">2</span>TRUCKING</div>
+  <div class="rail-stop" data-step="3" data-name="TRANSIT"><span class="num">3</span>TRANSIT (IN)</div>
+  <div class="rail-stop" data-step="4" data-name="SAILING"><span class="num">4</span>SAILING (OUT)</div>
+  <div class="rail-stop" data-step="5" data-name="DOORING"><span class="num">5</span>DOORING</div>
 </div>
 
 <div class="wrap">
@@ -287,6 +274,17 @@
     <div class="field">
       <label>Atas Nama</label>
       <input type="text" id="driverAtasNama" placeholder="SLAMET WIDODO">
+    </div>
+  </div>
+
+  <div class="panel" id="transitExtraPanel" style="display:none;border-color:var(--go);">
+    <h2 style="color:var(--go);">🏢 Info Transit</h2>
+    <div class="field">
+      <label>Status Rekon</label>
+      <select id="rekonStatus">
+        <option value="MATCH">✅ MATCH (Sesuai)</option>
+        <option value="OUTSTANDING">❌ OUTSTANDING (Selisih)</option>
+      </select>
     </div>
   </div>
 
@@ -358,9 +356,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // STATE
 // ============================================================
 let currentStep = 1;
-const stepNames = {1:'PICKUP',2:'TRUCKING',3:'TRANSIT',4:'SAILING',5:'DOORING'};
+const stepNames = {1:'PICKUP',2:'TRUCKING',3:'TRANSIT (IN)',4:'SAILING (OUT)',5:'DOORING'};
 // Mapping ke nama milestone PERSIS seperti di tabel milestone_ref (jangan diubah tanpa cek DB)
-const milestoneCodeMap = {1:'PICKUP', 2:'SCAN_OUT_TRUCK', 3:'TRANSIT_IN', 4:'SAILING_OUT', 5:'DOORING_IN'};
+// Transit tab = scan IN (barang turun dari trucking) | Sailing tab = scan OUT (naik ke mobil ke kapal)
+const milestoneCodeMap = {1:'PICKUP', 2:'SCAN_OUT_TRUCK', 3:'TRANSIT_IN', 4:'TRANSIT_OUT', 5:'DOORING_IN'};
 let html5QrCode = null;
 let cameraId = null;
 let cameras = [];
@@ -391,6 +390,7 @@ document.querySelectorAll('.rail-stop').forEach(el=>{
     currentStep = parseInt(el.dataset.step);
     document.getElementById('stepLabel').textContent = stepNames[currentStep];
     document.getElementById('pickupExtraPanel').style.display = (currentStep === 1) ? 'block' : 'none';
+    document.getElementById('transitExtraPanel').style.display = (currentStep === 3) ? 'block' : 'none';
     document.getElementById('sailingExtraPanel').style.display = (currentStep === 4) ? 'block' : 'none';
   });
 });
@@ -432,7 +432,6 @@ async function loginOperator(){
 }
 
 function subscribeRealtime(){
-  // Contoh: dashboard lain akan auto-update tanpa refresh saat ada scan baru
   sbClient.channel('scan_events_live')
     .on('postgres_changes', {event:'INSERT', schema:'public', table:'scan_events'}, payload=>{
       console.log('Realtime scan masuk:', payload.new);
@@ -448,7 +447,7 @@ function toggleCamera(){
   Html5Qrcode.getCameras().then(devices=>{
     if(!devices || devices.length===0){ showToast('Kamera tidak ditemukan', 'err'); return; }
     cameras = devices;
-    cameraId = devices[devices.length-1].id; // default: kamera belakang biasanya index terakhir
+    cameraId = devices[devices.length-1].id;
     startCamera();
   }).catch(err=>{
     showToast('Izin kamera ditolak', 'err');
@@ -487,12 +486,11 @@ function flipCamera(){
   if(cameraRunning){ stopCamera(); setTimeout(startCamera, 400); }
 }
 
-// Debounce agar barcode yang sama tidak terkirim berkali-kali dalam 1 sesi kamera terbuka
 let lastDecoded = null;
 let lastDecodedTime = 0;
 function onScanSuccess(text){
   const now = Date.now();
-  if(text === lastDecoded && (now-lastDecodedTime) < 3000) return; // cegah duplikat scan cepat
+  if(text === lastDecoded && (now-lastDecodedTime) < 3000) return;
   lastDecoded = text; lastDecodedTime = now;
   handleBarcode(text.trim().toUpperCase());
 }
@@ -533,7 +531,6 @@ async function handleBarcode(barcode){
     device_info: navigator.userAgent.substring(0,80)
   };
 
-  // Info tambahan hanya relevan & dikirim khusus milestone Pickup
   if(currentStep === 1){
     payload.slot_time = document.getElementById('slotTime').value.trim() || null;
     payload.driver_hp = document.getElementById('driverHp').value.trim() || null;
@@ -541,11 +538,13 @@ async function handleBarcode(barcode){
     payload.driver_bank = document.getElementById('driverBank').value.trim() || null;
     payload.driver_atas_nama = document.getElementById('driverAtasNama').value.trim() || null;
   }
+  if(currentStep === 3){
+    payload.rekon_status = document.getElementById('rekonStatus').value;
+  }
   if(currentStep === 4){
     payload.kapal = document.getElementById('namaKapal').value.trim() || null;
   }
 
-  // Tambahkan GPS jika tersedia — berguna untuk validasi lokasi scan
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(pos=>{
       payload.lat = pos.coords.latitude;
@@ -555,14 +554,6 @@ async function handleBarcode(barcode){
 
   document.getElementById('lastScan').classList.add('show');
   document.getElementById('lastScanCode').textContent = barcode;
-
-  if(!sbClient){
-    // mode demo tanpa koneksi database nyata
-    playBeep(true);
-    flashViewfinder('ok');
-    showToast('✓ '+barcode+' (mode demo, DB belum terhubung)', 'ok');
-    return;
-  }
 
   const {error} = await sbClient.from('scan_events').insert(payload);
   if(error){
@@ -586,7 +577,6 @@ function playBeep(ok){
   try{
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     if(ok){
-      // Sukses: nada naik ceria, 1x beep pendek
       const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.frequency.setValueAtTime(700, ctx.currentTime);
@@ -595,7 +585,6 @@ function playBeep(ok){
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime+0.22);
       osc.start(); osc.stop(ctx.currentTime+0.22);
     } else {
-      // Gagal: 2x beep rendah berdenging, seperti alarm peringatan
       [0, 0.18].forEach(delay=>{
         const osc = ctx.createOscillator(); const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
