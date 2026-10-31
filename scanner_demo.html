@@ -131,9 +131,17 @@ input:focus,select:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3
         <label><span>Nopol</span><input id="nopol" class="up" list="dlArmada" placeholder="L 8374 AE" autocomplete="off"></label>
         <label id="slotWrap"><span>Slot (khusus pickup)</span>
           <select id="slotTime"><option value="">— pilih slot —</option><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option></select></label>
+        <div id="truckWrap" class="grid two" hidden style="grid-column:1/-1">
+          <label><span>Trip *</span><input id="trip" class="up" placeholder="195/21" autocomplete="off"></label>
+          <label><span>Muat</span><input id="muat" class="up" list="dlMuat" placeholder="FULL FUSO" autocomplete="off"></label>
+          <label><span>No HP driver</span><input id="driverHp" inputmode="tel" placeholder="08xx" autocomplete="off"></label>
+          <label><span>No rekening driver</span><input id="driverRek" inputmode="numeric" autocomplete="off"></label>
+          <label><span>Bank</span><input id="driverBank" class="up" placeholder="BCA" autocomplete="off"></label>
+          <label><span>Atas nama</span><input id="driverAn" class="up" autocomplete="off"></label>
+        </div>
         <label id="kapalWrap" hidden><span>Nama kapal (khusus sailing)</span><input id="namaKapal" class="up" list="dlKapal" placeholder="KM SERBA GUNA" autocomplete="off"></label>
       </div>
-      <datalist id="dlArmada"></datalist><datalist id="dlKapal"></datalist>
+      <datalist id="dlArmada"></datalist><datalist id="dlMuat"><option value="FULL FUSO"><option value="HALF FUSO"><option value="FULL CDD"><option value="FULL CDDL"><option value="FULL WINGBOX"></datalist><datalist id="dlKapal"></datalist>
     </section>
 
     <!-- KAMERA -->
@@ -158,6 +166,17 @@ input:focus,select:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3
     <section class="card" id="resCard" hidden>
       <h3>Hasil scan terakhir</h3>
       <div id="res"></div>
+    </section>
+
+    <!-- LAPORAN TRUK -->
+    <section class="card" id="lapCard" hidden>
+      <h3>Laporan keberangkatan <small>untuk grup WA</small></h3>
+      <div class="grid two">
+        <label><span>Tanggal berangkat</span><input type="date" id="lapTgl"></label>
+        <label><span>Rute</span><input id="lapRute" class="up" placeholder="otomatis dari tujuan LT"></label>
+      </div>
+      <div class="btns"><button class="btn" onclick="buatLaporan()">Buat laporan</button><button class="btn sec" onclick="salinLaporan()">Salin</button></div>
+      <textarea id="lapText" rows="14" style="width:100%;margin-top:10px;font:13px/1.4 ui-monospace,monospace;border:1px solid #cbd5e1;border-radius:10px;padding:10px" placeholder="Scan semua TO di tahap Trucking dulu, lalu ketuk Buat laporan" readonly></textarea>
     </section>
 
     <section class="card">
@@ -194,7 +213,7 @@ const nf = new Intl.NumberFormat('id-ID');
 
 // Simpan isian di HP (kalau browser mengizinkan)
 const LS = { get(k) { try { return localStorage.getItem('ablscan_' + k) || ''; } catch (e) { return ''; } }, set(k, v) { try { localStorage.setItem('ablscan_' + k, v); } catch (e) {} } };
-['operatorId', 'driverName', 'nopol', 'slotTime', 'namaKapal'].forEach(id => {
+['operatorId', 'driverName', 'nopol', 'slotTime', 'namaKapal', 'trip', 'muat', 'driverHp', 'driverRek', 'driverBank', 'driverAn'].forEach(id => {
   $(id).value = LS.get(id);
   $(id).addEventListener('change', () => LS.set(id, $(id).value.trim().toUpperCase()));
 });
@@ -213,6 +232,9 @@ function renderSteps() {
   $('stepLabel').textContent = STEPS[step].label.toUpperCase();
   $('slotWrap').hidden = STEPS[step].key !== 'PICKUP';
   $('kapalWrap').hidden = STEPS[step].key !== 'SAILING_OUT';
+  const tr = STEPS[step].key === 'SCAN_OUT_TRUCK';
+  $('truckWrap').hidden = !tr; $('lapCard').hidden = !tr;
+  if (tr && !$('lapTgl').value) $('lapTgl').value = tglLokal(new Date());
 }
 function setStep(i) { step = i; LS.set('step', i); renderSteps(); }
 
@@ -317,9 +339,21 @@ async function kirim(barcode) {
       payload.kapal = $('namaKapal').value.trim().toUpperCase() || null;
       if (!payload.kapal) { gagal(barcode, 'Isi nama kapal dulu untuk tahap Sailing'); $('namaKapal').focus(); return; }
     }
+    if (s.key === 'SCAN_OUT_TRUCK') {
+      const v = id => $(id).value.trim().toUpperCase() || null;
+      Object.assign(payload, { trip: v('trip'), muat: v('muat'), driver_hp: $('driverHp').value.trim() || null,
+        driver_rek: $('driverRek').value.trim() || null, driver_bank: v('driverBank'), driver_atas_nama: v('driverAn') });
+      if (!payload.trip) { gagal(barcode, 'Isi Trip dulu untuk tahap Trucking'); $('trip').focus(); return; }
+      if (!payload.nopol) { gagal(barcode, 'Isi Nopol dulu untuk tahap Trucking'); $('nopol').focus(); return; }
+    }
     if (pos) { payload.lat = pos.latitude; payload.lng = pos.longitude; }
 
-    const { error } = await sb.from('scan_events').insert(payload);
+    let { error } = await sb.from('scan_events').insert(payload);
+    // Database lama belum punya kolom trip/muat: kirim ulang tanpa kolom itu
+    if (error && /column .*(trip|muat)/i.test(error.message)) {
+      delete payload.trip; delete payload.muat;
+      ({ error } = await sb.from('scan_events').insert(payload));
+    }
     if (error) {
       const sudah = /sudah di milestone/i.test(error.message);
       return gagal(barcode, sudah ? 'Sudah pernah discan di tahap ini atau tahap sesudahnya' : error.message, sudah ? 'warn' : 'bad');
@@ -364,6 +398,66 @@ function gagal(code, msg, cls) { beep(false); flash('err'); tampil(cls || 'bad',
 function renderHist() {
   $('histCount').textContent = hist.length + ' scan';
   $('hist').innerHTML = hist.slice(0, 30).map(h => `<div><span><b>${esc(h.code)}</b> <small>${esc(h.lt || '')}</small><br><small>${esc(h.step)}</small></span><small>${h.t.toLocaleTimeString('id-ID')}</small></div>`).join('');
+}
+
+// ============================================================
+// LAPORAN KEBERANGKATAN ARMADA (format grup WA)
+// ============================================================
+function tglLokal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+const ddmmyy = s => s.split('-').reverse().join('/');
+const potong = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+const modus = a => { const c = {}; let b = '', m = 0; a.filter(Boolean).forEach(x => { c[x] = (c[x] || 0) + 1; if (c[x] > m) { m = c[x]; b = x; } }); return b; };
+async function buatLaporan() {
+  const nopol = $('nopol').value.trim().toUpperCase(), trip = $('trip').value.trim().toUpperCase(), tgl = $('lapTgl').value;
+  if (!nopol || !tgl) return toast('Isi Nopol dan tanggal dulu', 'err');
+  $('lapText').value = 'Menyusun laporan…';
+  try {
+    const d0 = new Date(tgl + 'T00:00:00'), d1 = new Date(d0.getTime() + 864e5);
+    const { data: ev, error } = await sb.from('scan_events').select('*').eq('milestone', 'SCAN_OUT_TRUCK').eq('nopol', nopol)
+      .gte('scanned_at', d0.toISOString()).lt('scanned_at', d1.toISOString()).order('scanned_at');
+    if (error) throw error;
+    let rows = ev || [];
+    if (trip && rows.some(r => r.trip)) rows = rows.filter(r => !r.trip || String(r.trip).toUpperCase() === trip);
+    if (!rows.length) { $('lapText').value = ''; return toast('Belum ada scan Trucking untuk nopol ini di tanggal itu', 'err'); }
+    const codes = [...new Set(rows.map(r => r.barcode))];
+    let pk = [];
+    for (const c of potong(codes, 150)) { const { data } = await sb.from('master_paket').select('barcode,lt_id,berat_kg').in('barcode', c); pk = pk.concat(data || []); }
+    const ids = [...new Set(pk.map(p => p.lt_id).filter(Boolean))];
+    let lts = [];
+    for (const c of potong(ids, 150)) { const { data } = await sb.from('master_lt').select('id,no_lt,no_stt,tujuan,expected_to').in('id', c); lts = lts.concat(data || []); }
+    const per = {}; let kg = 0, tanpaLt = 0;
+    pk.forEach(p => { const l = lts.find(x => x.id === p.lt_id); if (!l) { tanpaLt++; return; }
+      const g = per[l.id] = per[l.id] || { l, to: 0, kg: 0 }; g.to++; g.kg += Number(p.berat_kg) || 0; kg += Number(p.berat_kg) || 0; });
+    tanpaLt += codes.length - pk.length;
+    const grp = Object.values(per);
+    const ambil = k => modus(rows.map(r => r[k] && String(r[k]).trim()));
+    const drv = ambil('driver') || $('driverName').value.trim().toUpperCase(), hp = ambil('driver_hp') || $('driverHp').value.trim();
+    const muat = ambil('muat') || $('muat').value.trim().toUpperCase(), trp = ambil('trip') || trip;
+    const rek = ambil('driver_rek') || $('driverRek').value.trim(), bank = ambil('driver_bank') || $('driverBank').value.trim().toUpperCase(), an = ambil('driver_atas_nama') || $('driverAn').value.trim().toUpperCase();
+    const tuj = grp.map(g => String(g.l.tujuan || '').toUpperCase());
+    const rute = $('lapRute').value.trim().toUpperCase() || ['JKT'].concat(tuj.some(t => /BATAM/.test(t)) ? ['BTH'] : [], tuj.some(t => t && !/BATAM/.test(t)) ? ['KEPRI'] : []).join(' - ');
+    const opt = [...$('dlArmada').options].find(o => o.value.toUpperCase() === nopol);
+    const jenis = (opt && opt.textContent.trim()) || (/FUSO/.test(muat) ? 'Fuso' : 'Truk');
+    const jam = new Date(rows[0].scanned_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const kgTxt = nf.format(Math.round(kg));
+    const a = ['Berikut Data Keberangkatan Armada ' + jenis, rute, ddmmyy(tgl), '',
+      'TRIP : ' + (trp || '-'), 'NOPOL : ' + nopol, 'DRIVER : ' + (drv || '-'), 'NO HP : ' + (hp || '-')];
+    const b = ['FILE KANTOR', ''];
+    grp.forEach((g, i) => {
+      const kurang = g.l.expected_to && g.to < g.l.expected_to ? ' (kurang ' + (g.l.expected_to - g.to) + ' TO)' : '';
+      b.push((i + 1) + '. ' + g.l.no_lt + (g.l.no_stt ? ' / STT ' + g.l.no_stt : '') + ' / ' + (g.l.tujuan || '-') + ' / ' + g.to + ' TO' + kurang);
+    });
+    if (tanpaLt) b.push('* ' + tanpaLt + ' TO belum terdaftar di master');
+    b.push('', 'NOPOL : ' + nopol, 'DRIVER : ' + (drv || '-'), 'NO HP : ' + (hp || '-'), 'BERANGKAT : ' + ddmmyy(tgl) + ' ' + jam,
+      'MUAT : ' + (muat || '-'), 'TRIP : ' + (trp || '-'), 'TOTAL TO : ' + nf.format(codes.length), 'TOTAL KG : ' + kgTxt,
+      'NO REK : ' + (rek || '-'), 'BANK/An : ' + ((bank || '-') + (an ? ' / ' + an : '')));
+    $('lapText').value = a.join('\n') + '\n\n\n' + b.join('\n');
+  } catch (e) { $('lapText').value = ''; toast('Gagal menyusun laporan: ' + (e.message || e), 'err'); }
+}
+async function salinLaporan() {
+  const t = $('lapText').value; if (!t) return toast('Buat laporan dulu', 'err');
+  try { await navigator.clipboard.writeText(t); toast('Laporan disalin — tempel di grup WA'); }
+  catch (e) { $('lapText').select(); document.execCommand('copy'); toast('Laporan disalin'); }
 }
 
 // ============================================================
